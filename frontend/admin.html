@@ -1,0 +1,112 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<title>Admin - Apuestas</title>
+<link rel="stylesheet" href="css/estilos.css">
+</head>
+<body>
+  <h1>Panel Admin</h1>
+  <p><a href="index.html">Ver partidos</a> | <a href="mis-apuestas.html">Mis apuestas</a> | <a href="#" id="logout">Cerrar sesión</a></p>
+
+  <h3>Crear partido</h3>
+  <form id="formCrear">
+    <input type="text" id="equipo_local" placeholder="Equipo local" required><br>
+    <input type="text" id="equipo_visitante" placeholder="Equipo visitante" required><br>
+    <input type="datetime-local" id="fecha" required><br>
+    <input type="number" step="0.01" id="cuota_local" placeholder="Cuota local" required>
+    <input type="number" step="0.01" id="cuota_empate" placeholder="Cuota empate" required>
+    <input type="number" step="0.01" id="cuota_visitante" placeholder="Cuota visitante" required><br>
+    <button type="submit">Crear partido</button>
+  </form>
+  <p id="mensajeCrear"></p>
+
+  <h3>Partidos pendientes (finalizar)</h3>
+  <table border="1" id="tablaPartidos">
+    <thead>
+      <tr><th>ID</th><th>Local</th><th>Visitante</th><th>Fecha</th><th>Resultado</th><th></th></tr>
+    </thead>
+    <tbody></tbody>
+  </table>
+  <p id="mensajeFinalizar"></p>
+
+  <script src="js/config.js"></script>
+  <script>
+    const usuario = JSON.parse(sessionStorage.getItem('usuario') || 'null');
+    if (!usuario) location.href = 'login.html';
+
+    document.getElementById('logout').addEventListener('click', () => {
+      sessionStorage.removeItem('usuario');
+      location.href = 'login.html';
+    });
+
+    document.getElementById('formCrear').addEventListener('submit', async (e) => {
+      e.preventDefault();
+      const body = {
+        equipo_local: document.getElementById('equipo_local').value,
+        equipo_visitante: document.getElementById('equipo_visitante').value,
+        fecha: document.getElementById('fecha').value.replace('T', ' ') + ':00',
+        cuota_local: Number(document.getElementById('cuota_local').value),
+        cuota_empate: Number(document.getElementById('cuota_empate').value),
+        cuota_visitante: Number(document.getElementById('cuota_visitante').value)
+      };
+      const res = await fetch(API.partidos, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(body)
+      });
+      const data = await res.json();
+      if (res.ok) {
+        document.getElementById('mensajeCrear').textContent = 'Partido creado con id ' + data.id;
+        document.getElementById('formCrear').reset();
+        cargarPartidos();
+      } else {
+        document.getElementById('mensajeCrear').textContent = data.error || 'Error al crear';
+      }
+    });
+
+    async function cargarPartidos() {
+      const res = await fetch(API.partidos);
+      const partidos = await res.json();
+      const tbody = document.querySelector('#tablaPartidos tbody');
+      tbody.innerHTML = '';
+      partidos.filter(p => p.estado === 'PENDIENTE').forEach(p => {
+        const tr = document.createElement('tr');
+        tr.innerHTML = `
+          <td>${p.id}</td>
+          <td>${p.equipo_local}</td>
+          <td>${p.equipo_visitante}</td>
+          <td>${p.fecha}</td>
+          <td>
+            <select id="resultado-${p.id}">
+              <option value="LOCAL">LOCAL</option>
+              <option value="EMPATE">EMPATE</option>
+              <option value="VISITANTE">VISITANTE</option>
+            </select>
+          </td>
+          <td><button onclick="finalizar(${p.id})">Finalizar</button></td>
+        `;
+        tbody.appendChild(tr);
+      });
+    }
+
+    async function finalizar(id) {
+      const resultado = document.getElementById(`resultado-${id}`).value;
+      const res = await fetch(`${API.partidos}/${id}/finalizar`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ resultado })
+      });
+      const data = await res.json();
+      if (res.ok) {
+        document.getElementById('mensajeFinalizar').textContent = 'Partido finalizado';
+        cargarPartidos();
+      } else {
+        document.getElementById('mensajeFinalizar').textContent = data.error || 'Error al finalizar';
+      }
+    }
+
+    cargarPartidos();
+  </script>
+</body>
+</html>

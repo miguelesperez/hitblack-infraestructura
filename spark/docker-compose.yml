@@ -1,0 +1,30 @@
+# Clúster Spark standalone repartido en las dos VMs.
+#   Ubuntu 1:  docker compose --profile master up -d     -> master + 1 worker
+#   Ubuntu 2:  docker compose up -d                       -> 1 worker
+# Se usa network_mode: host para que master, workers y driver se vean por la red 192.168.100.x
+# (ambas VMs tienen la misma IP NAT 10.0.2.15 en eth0, por eso se fija la IP explícitamente).
+# Variables (las define 01_master.sh / 02_worker.sh):
+#   SPARK_MASTER_IP  IP del master (Ubuntu 1)      SPARK_LOCAL_IP  IP de ESTA máquina
+services:
+  master:
+    profiles: ["master"]
+    image: hitblack/spark:3.5
+    build: .
+    network_mode: host
+    restart: unless-stopped
+    command: >
+      /opt/spark/bin/spark-class org.apache.spark.deploy.master.Master
+      --host ${SPARK_MASTER_IP:?defina SPARK_MASTER_IP} --port 7077 --webui-port 8090
+
+  worker:
+    image: hitblack/spark:3.5
+    build: .
+    network_mode: host
+    restart: unless-stopped
+    command: >
+      /opt/spark/bin/spark-class org.apache.spark.deploy.worker.Worker
+      spark://${SPARK_MASTER_IP:?defina SPARK_MASTER_IP}:7077
+      --host ${SPARK_LOCAL_IP:?defina SPARK_LOCAL_IP} --webui-port 8091
+      --cores ${WORKER_CORES:-1} --memory ${WORKER_MEMORY:-1g}
+    volumes:
+      - /vagrant/datos:/datos:ro   # el dataset en CSV, visible en las dos VMs

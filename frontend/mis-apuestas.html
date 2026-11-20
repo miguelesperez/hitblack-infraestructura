@@ -1,0 +1,86 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<title>Mis apuestas</title>
+<link rel="stylesheet" href="css/estilos.css">
+</head>
+<body>
+  <h1>Mis apuestas</h1>
+  <p id="bienvenida"></p>
+  <p><a href="index.html">Ver partidos</a> | <a href="admin.html">Admin</a> | <a href="#" id="logout">Cerrar sesión</a></p>
+
+  <h3>Recargar saldo</h3>
+  <input type="number" id="montoRecarga" placeholder="Monto a recargar">
+  <button id="recargar">Recargar</button>
+  <p id="mensajeRecarga"></p>
+
+  <h3>Historial</h3>
+  <table border="1" id="tablaApuestas">
+    <thead>
+      <tr>
+        <th>Partido</th>
+        <th>Tipo</th>
+        <th>Monto</th>
+        <th>Cuota</th>
+        <th>Ganancia potencial</th>
+        <th>Estado</th>
+        <th>Fecha</th>
+      </tr>
+    </thead>
+    <tbody></tbody>
+  </table>
+
+  <script src="js/config.js"></script>
+  <script>
+    const usuario = JSON.parse(sessionStorage.getItem('usuario') || 'null');
+    if (!usuario) location.href = 'login.html';
+
+    document.getElementById('bienvenida').textContent = `Hola, ${usuario.nombre} — Saldo: ${usuario.saldo}`;
+    document.getElementById('logout').addEventListener('click', () => {
+      sessionStorage.removeItem('usuario');
+      location.href = 'login.html';
+    });
+
+    document.getElementById('recargar').addEventListener('click', async () => {
+      const monto = Number(document.getElementById('montoRecarga').value);
+      if (!monto || monto <= 0) return;
+      const res = await fetch(`${API.usuarios}/${usuario.id}/saldo`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ monto })
+      });
+      const data = await res.json();
+      if (res.ok) {
+        sessionStorage.setItem('usuario', JSON.stringify(data));
+        document.getElementById('bienvenida').textContent = `Hola, ${data.nombre} — Saldo: ${data.saldo}`;
+        document.getElementById('mensajeRecarga').textContent = 'Saldo actualizado';
+      } else {
+        document.getElementById('mensajeRecarga').textContent = data.error || 'Error al recargar';
+      }
+    });
+
+    async function cargarApuestas() {
+      const res = await fetch(`${API.apuestas}/usuario/${usuario.id}`);
+      const apuestas = await res.json();
+      const tbody = document.querySelector('#tablaApuestas tbody');
+      tbody.innerHTML = '';
+      apuestas.forEach(a => {
+        const tr = document.createElement('tr');
+        tr.innerHTML = `
+          <td>${a.partido_id}</td>
+          <td>${a.tipo}</td>
+          <td>${a.monto}</td>
+          <td>${a.cuota}</td>
+          <td>${a.ganancia_potencial}</td>
+          <td>${a.estado}</td>
+          <td>${a.fecha}</td>
+        `;
+        tbody.appendChild(tr);
+      });
+    }
+
+    cargarApuestas();
+  </script>
+</body>
+</html>

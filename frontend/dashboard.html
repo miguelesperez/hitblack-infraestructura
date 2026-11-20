@@ -1,0 +1,168 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Dashboard - Análisis de cuotas</title>
+<link rel="stylesheet" href="css/estilos.css">
+<style>
+  .sub { text-align: center; color: #cfd8dc; max-width: 820px; margin: 0 auto 8px; padding: 0 16px; }
+  .kpis { display: flex; flex-wrap: wrap; gap: 12px; justify-content: center; max-width: 1100px; margin: 16px auto; padding: 0 16px; }
+  .kpi { background: rgba(255,255,255,0.08); border-radius: 12px; padding: 12px 18px; min-width: 150px; text-align: center; }
+  .kpi b { display: block; font-size: 24px; color: #ffd700; }
+  .kpi span { font-size: 12px; color: #cfd8dc; }
+  .rejilla { display: grid; grid-template-columns: repeat(auto-fit, minmax(440px, 1fr)); gap: 18px; max-width: 1200px; margin: 0 auto 32px; padding: 0 16px; }
+  .tarjeta { background: rgba(255,255,255,0.08); border-radius: 12px; padding: 16px; box-shadow: 0 4px 20px rgba(0,0,0,0.3); min-width: 0; }
+  .tarjeta h3 { margin: 0 0 4px; font-size: 16px; }
+  .tarjeta p.nota { margin: 0 0 10px; font-size: 12px; color: #b0bec5; }
+  .lienzo { position: relative; height: 300px; }
+  .tarjeta table { width: 100%; margin: 8px 0 0; font-size: 14px; }
+  .tarjeta th, .tarjeta td { padding: 7px; }
+  .tarjeta td:first-child { text-align: left; }
+  #estado { text-align: center; padding: 16px; color: #ffb74d; font-weight: bold; }
+  @media (max-width: 520px) { .rejilla { grid-template-columns: 1fr; } }
+</style>
+</head>
+<body>
+  <h1>Dashboard: ¿qué tan bien acierta el mercado?</h1>
+  <p class="sub">Análisis con Apache Spark de 25.979 partidos de 11 ligas europeas (2008-2016) y las cuotas de 10 casas de apuestas.</p>
+  <p style="text-align:center"><a href="index.html">Partidos</a> | <a href="mis-apuestas.html">Mis apuestas</a></p>
+  <div id="estado">Cargando reportes...</div>
+  <div class="kpis" id="kpis"></div>
+
+  <div class="rejilla" id="rejilla" style="display:none">
+    <div class="tarjeta"><h3>Resultados por liga</h3><p class="nota">% de victorias locales, empates y victorias visitantes.</p><div class="lienzo"><canvas id="gVentaja"></canvas></div></div>
+    <div class="tarjeta"><h3>Acierto del favorito</h3><p class="nota">% de partidos en que ganó el equipo con la cuota más baja (Bet365).</p><div class="lienzo"><canvas id="gAcierto"></canvas></div></div>
+    <div class="tarjeta"><h3>Calibración de las cuotas</h3><p class="nota">Si el mercado es preciso, la frecuencia real sigue a la probabilidad implícita.</p><div class="lienzo"><canvas id="gCalib"></canvas></div></div>
+    <div class="tarjeta"><h3>Margen de cada casa</h3><p class="nota">Ventaja promedio de la casa incluida en las cuotas (%).</p><div class="lienzo"><canvas id="gMargen"></canvas></div></div>
+    <div class="tarjeta"><h3>ROI de apostar siempre lo mismo</h3><p class="nota">Retorno por apostar 1 unidad a cada partido (%). Negativo = se pierde.</p><div class="lienzo"><canvas id="gRoi"></canvas></div></div>
+    <div class="tarjeta"><h3>ROI de apostar al favorito, por liga</h3><p class="nota">Retorno (%) de apostar siempre al favorito en cada liga.</p><div class="lienzo"><canvas id="gRoiLiga"></canvas></div></div>
+    <div class="tarjeta"><h3>Goles y ventaja local por temporada</h3><p class="nota">Promedio de goles por partido y % de victorias locales.</p><div class="lienzo"><canvas id="gTemporada"></canvas></div></div>
+    <div class="tarjeta"><h3>Equipos que más sorprenden</h3><p class="nota">Victorias con cuota ganadora de 4.0 o más.</p><table id="tSorpresas"></table></div>
+    <div class="tarjeta"><h3>Top 10 jugadores</h3><p class="nota">Rating medio FIFA con al menos 5 registros.</p><table id="tJugadores"></table></div>
+  </div>
+
+  <script src="js/chart.umd.js"></script>
+  <script src="js/config.js"></script>
+  <script>
+    Chart.defaults.color = '#cfd8dc';
+    Chart.defaults.borderColor = 'rgba(255,255,255,0.1)';
+    Chart.defaults.font.family = "'Segoe UI', Arial, sans-serif";
+    const ORO = '#ffd700', CIAN = '#7fdbff', VERDE = '#7fffa0', ROJO = '#ff6b6b', GRIS = '#90a4ae';
+    const NOMBRES = ['ventaja_local', 'acierto_favorito', 'calibracion', 'margen_casas', 'sorpresas',
+                     'roi_estrategias', 'roi_favorito_liga', 'goles_temporada', 'top_jugadores', 'meta'];
+
+    async function cargar(nombre) {
+      const r = await fetch(`${API.reportes}/${nombre}`);
+      if (!r.ok) throw new Error(`${nombre}: HTTP ${r.status}`);
+      return r.json();
+    }
+
+    function kpi(valor, etiqueta) {
+      const d = document.createElement('div'); d.className = 'kpi';
+      const b = document.createElement('b'); b.textContent = valor;
+      const s = document.createElement('span'); s.textContent = etiqueta;
+      d.append(b, s); document.getElementById('kpis').append(d);
+    }
+
+    function tabla(id, columnas, filas) {
+      const t = document.getElementById(id);
+      t.innerHTML = '';
+      const cab = t.insertRow();
+      columnas.forEach(([, titulo]) => { const th = document.createElement('th'); th.textContent = titulo; cab.append(th); });
+      filas.forEach(f => {
+        const tr = t.insertRow();
+        columnas.forEach(([clave]) => { tr.insertCell().textContent = f[clave]; });
+      });
+    }
+
+    const barra = (id, etiquetas, datos, opciones = {}) => new Chart(document.getElementById(id), {
+      type: 'bar',
+      data: { labels: etiquetas, datasets: [{ data: datos, backgroundColor: opciones.colores || ORO }] },
+      options: { indexAxis: opciones.eje || 'y', maintainAspectRatio: false, plugins: { legend: { display: false } },
+                 scales: opciones.escalas || {} }
+    });
+
+    async function iniciar() {
+      let R;
+      try {
+        const lista = await Promise.all(NOMBRES.map(cargar));
+        R = Object.fromEntries(lista.map(r => [r.nombre, r.datos]));
+      } catch (e) {
+        document.getElementById('estado').textContent =
+          'Todavía no hay reportes. Ejecuta el job de Spark (03_ejecutar_job.sh) y recarga la página. Detalle: ' + e.message;
+        return;
+      }
+      document.getElementById('estado').style.display = 'none';
+      document.getElementById('rejilla').style.display = '';
+
+      const meta = R.meta[0];
+      kpi(meta.partidos.toLocaleString('es-CO'), 'partidos analizados');
+      kpi(meta.partidos_con_cuotas ? meta.partidos_con_cuotas.toLocaleString('es-CO') : '-', 'con cuotas válidas');
+      kpi(R.ventaja_local.length, 'ligas');
+      kpi(R.goles_temporada.length, 'temporadas');
+      kpi(meta.segundos + ' s', 'tiempo en Spark');
+      kpi(meta.ejecutores != null && meta.ejecutores > 0 ? meta.ejecutores + ' ejecutores' : meta.master, 'clúster Spark ' + meta.spark);
+
+      // 1. Resultados por liga (apilado 100%)
+      new Chart(document.getElementById('gVentaja'), {
+        type: 'bar',
+        data: {
+          labels: R.ventaja_local.map(r => r.liga),
+          datasets: [
+            { label: 'Local', data: R.ventaja_local.map(r => r.pct_local), backgroundColor: ORO },
+            { label: 'Empate', data: R.ventaja_local.map(r => r.pct_empate), backgroundColor: GRIS },
+            { label: 'Visitante', data: R.ventaja_local.map(r => r.pct_visitante), backgroundColor: CIAN }]
+        },
+        options: { indexAxis: 'y', maintainAspectRatio: false, scales: { x: { stacked: true, max: 100 }, y: { stacked: true } } }
+      });
+
+      // 2. Acierto del favorito
+      barra('gAcierto', R.acierto_favorito.map(r => r.liga), R.acierto_favorito.map(r => r.pct_acierto),
+            { colores: VERDE, escalas: { x: { min: 0, max: 100 } } });
+
+      // 3. Calibración
+      new Chart(document.getElementById('gCalib'), {
+        type: 'line',
+        data: {
+          labels: R.calibracion.map(r => r.rango),
+          datasets: [
+            { label: 'Probabilidad implícita', data: R.calibracion.map(r => r.prob_implicita), borderColor: ORO, tension: 0.2 },
+            { label: 'Frecuencia real', data: R.calibracion.map(r => r.frecuencia_real), borderColor: CIAN, tension: 0.2 }]
+        },
+        options: { maintainAspectRatio: false, scales: { y: { min: 0, max: 1 } } }
+      });
+
+      // 4. Margen por casa
+      barra('gMargen', R.margen_casas.map(r => r.casa), R.margen_casas.map(r => r.margen_pct), { colores: ROJO });
+
+      // 5. ROI estrategias
+      const color = v => (v >= 0 ? VERDE : ROJO);
+      barra('gRoi', R.roi_estrategias.map(r => r.estrategia), R.roi_estrategias.map(r => r.roi_pct),
+            { eje: 'x', colores: R.roi_estrategias.map(r => color(r.roi_pct)) });
+
+      // 6. ROI favorito por liga
+      barra('gRoiLiga', R.roi_favorito_liga.map(r => r.liga), R.roi_favorito_liga.map(r => r.roi_pct),
+            { colores: R.roi_favorito_liga.map(r => color(r.roi_pct)) });
+
+      // 7. Temporadas
+      new Chart(document.getElementById('gTemporada'), {
+        type: 'line',
+        data: {
+          labels: R.goles_temporada.map(r => r.season),
+          datasets: [
+            { label: 'Goles por partido', data: R.goles_temporada.map(r => r.goles_promedio), borderColor: ORO, yAxisID: 'y' },
+            { label: '% victorias locales', data: R.goles_temporada.map(r => r.pct_local), borderColor: CIAN, yAxisID: 'y1' }]
+        },
+        options: { maintainAspectRatio: false, scales: {
+          y: { position: 'left', title: { display: true, text: 'goles' } },
+          y1: { position: 'right', grid: { drawOnChartArea: false }, title: { display: true, text: '% local' } } } }
+      });
+
+      tabla('tSorpresas', [['equipo', 'Equipo'], ['victorias_sorpresa', 'Victorias'], ['cuota_media', 'Cuota media']], R.sorpresas);
+      tabla('tJugadores', [['jugador', 'Jugador'], ['rating_medio', 'Rating'], ['potencial_medio', 'Potencial']], R.top_jugadores);
+    }
+    iniciar();
+  </script>
+</body>
+</html>

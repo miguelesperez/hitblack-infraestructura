@@ -1,0 +1,94 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<title>Partidos - Apuestas</title>
+<link rel="stylesheet" href="css/estilos.css">
+</head>
+<body>
+  <h1>Partidos disponibles</h1>
+  <p id="bienvenida"></p>
+  <p><a href="mis-apuestas.html">Mis apuestas</a> | <a href="dashboard.html">Dashboard</a> | <a href="admin.html">Admin</a> | <a href="#" id="logout">Cerrar sesión</a></p>
+
+  <table border="1" id="tablaPartidos">
+    <thead>
+      <tr>
+        <th>Local</th>
+        <th>Visitante</th>
+        <th>Fecha</th>
+        <th>Local</th>
+        <th>Empate</th>
+        <th>Visitante</th>
+      </tr>
+    </thead>
+    <tbody></tbody>
+  </table>
+
+  <div id="formApuesta" style="display:none; margin-top:20px;">
+    <h3>Hacer apuesta</h3>
+    <p id="detalleApuesta"></p>
+    <input type="number" id="montoApuesta" placeholder="Monto a apostar">
+    <button id="confirmarApuesta">Confirmar</button>
+  </div>
+  <p id="mensaje"></p>
+
+  <script src="js/config.js"></script>
+  <script>
+    const usuario = JSON.parse(sessionStorage.getItem('usuario') || 'null');
+    if (!usuario) location.href = 'login.html';
+
+    document.getElementById('bienvenida').textContent = `Hola, ${usuario.nombre} — Saldo: ${usuario.saldo}`;
+    document.getElementById('logout').addEventListener('click', () => {
+      sessionStorage.removeItem('usuario');
+      location.href = 'login.html';
+    });
+
+    let partidoSeleccionado = null;
+    let tipoSeleccionado = null;
+
+    async function cargarPartidos() {
+      const res = await fetch(API.partidos);
+      const partidos = await res.json();
+      const tbody = document.querySelector('#tablaPartidos tbody');
+      tbody.innerHTML = '';
+      partidos.filter(p => p.estado === 'PENDIENTE').forEach(p => {
+        const tr = document.createElement('tr');
+        tr.innerHTML = `
+          <td>${p.equipo_local}</td>
+          <td>${p.equipo_visitante}</td>
+          <td>${p.fecha}</td>
+          <td><button onclick="seleccionar(${p.id}, 'LOCAL', ${p.cuota_local})">${p.cuota_local}</button></td>
+          <td><button onclick="seleccionar(${p.id}, 'EMPATE', ${p.cuota_empate})">${p.cuota_empate}</button></td>
+          <td><button onclick="seleccionar(${p.id}, 'VISITANTE', ${p.cuota_visitante})">${p.cuota_visitante}</button></td>
+        `;
+        tbody.appendChild(tr);
+      });
+    }
+
+    function seleccionar(partidoId, tipo, cuota) {
+      partidoSeleccionado = partidoId;
+      tipoSeleccionado = tipo;
+      document.getElementById('formApuesta').style.display = 'block';
+      document.getElementById('detalleApuesta').textContent = `Partido #${partidoId} - ${tipo} (cuota ${cuota})`;
+    }
+
+    document.getElementById('confirmarApuesta').addEventListener('click', async () => {
+      const monto = Number(document.getElementById('montoApuesta').value);
+      const res = await fetch(API.apuestas, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ usuario_id: usuario.id, partido_id: partidoSeleccionado, tipo: tipoSeleccionado, monto })
+      });
+      const data = await res.json();
+      if (res.ok) {
+        document.getElementById('mensaje').textContent = `Apuesta registrada. Ganancia potencial: ${data.ganancia_potencial}`;
+        document.getElementById('formApuesta').style.display = 'none';
+      } else {
+        document.getElementById('mensaje').textContent = data.error || 'Error al apostar';
+      }
+    });
+
+    cargarPartidos();
+  </script>
+</body>
+</html>
